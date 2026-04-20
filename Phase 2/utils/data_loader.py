@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from .config import DATA_DIR, COLUMN_NAMES, ATTACK_MAPPING, CATEGORICAL_COLS, DROP_COLS, SEED
 
@@ -25,11 +25,18 @@ def load_nslkdd():
     df_test['binary_label'] = (df_test['label'] != 'normal').astype(int)
 
     for col in CATEGORICAL_COLS:
-        le = LabelEncoder()
-        combined = pd.concat([df_train[col], df_test[col]]).unique()
-        le.fit(combined)
-        df_train[col] = le.transform(df_train[col])
-        df_test[col] = le.transform(df_test[col])
+        # Fit encoder on train only to avoid test-distribution leakage.
+        # Any unseen category in test is mapped to -1.
+        train_categories = sorted(df_train[col].astype(str).unique().tolist())
+        category_to_index = {cat: idx for idx, cat in enumerate(train_categories)}
+        df_train[col] = df_train[col].astype(str).map(category_to_index).astype(int)
+        df_test[col] = (
+            df_test[col]
+            .astype(str)
+            .map(category_to_index)
+            .fillna(-1)
+            .astype(int)
+        )
 
     feature_cols = [c for c in df_train.columns if c not in DROP_COLS]
     feature_cols = [c for c in feature_cols if df_train[c].std() > 0]

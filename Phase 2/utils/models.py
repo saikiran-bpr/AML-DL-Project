@@ -4,7 +4,11 @@ import torch.nn as nn
 
 
 class WeightedMSELoss(nn.Module):
-    """MSE loss with per-feature inverse-variance weighting."""
+    """MSE loss with per-feature inverse-variance weighting.
+
+    Weighting stabilizes training on NSL-KDD tabular features where
+    some dimensions have much higher dispersion than others.
+    """
     def __init__(self, weights=None):
         super().__init__()
         self.weights = weights
@@ -49,6 +53,8 @@ class AutoencoderSkip(nn.Module):
 
     def decode(self, z, h1, h2):
         d1 = self.dec1(z)
+        # Skip links preserve useful low-level structure in tabular traffic
+        # features while still enforcing compression at the bottleneck.
         d1 = torch.cat([d1, h2], dim=1)
         d2 = self.dec2(d1)
         d2 = torch.cat([d2, h1], dim=1)

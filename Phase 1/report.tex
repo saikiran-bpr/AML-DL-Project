@@ -604,29 +604,135 @@ Key observations:
         sequence models (LSTMs) are planned for Phase~2.
 \end{enumerate}
 
+\section{Deep Learning Approach (Phase-2)}
+\label{sec:phase2_dl}
+
+\subsection{Motivation}
+Phase~1 established strong, interpretable baselines; however, both Z-Score and
+Isolation Forest have representational limitations for complex traffic manifolds.
+Z-Score relies on per-feature deviations and cannot model rich non-linear feature
+interactions. Isolation Forest is more expressive but still depends on random
+partitioning rather than explicit latent representation learning. This motivates a
+deep reconstruction model that learns normal NSL-KDD traffic structure directly
+from data and flags departures from that learned manifold.
+
+\subsection{Autoencoder Architecture}
+We implement a deep autoencoder with encoder--bottleneck--decoder topology:
+\[
+\mathbb{R}^{43} \rightarrow 128 \rightarrow 64 \rightarrow 32 \rightarrow 64 \rightarrow 128 \rightarrow \mathbb{R}^{43}.
+\]
+The 32-dimensional bottleneck enforces compact representation of normal traffic.
+To improve training stability and reconstruction fidelity, the model integrates:
+\begin{itemize}
+  \item \textbf{Skip connections} between encoder and decoder stages to preserve
+        informative low-level feature structure.
+  \item \textbf{Dropout} ($p=0.2$) to reduce overfitting.
+  \item \textbf{Batch Normalisation} to stabilise optimisation dynamics.
+\end{itemize}
+
+\subsection{Training Strategy}
+Training follows a one-class regime: the autoencoder is fitted \emph{only} on
+normal training records. A separate validation set is used for model selection and
+decision-threshold calibration, while the test set is reserved strictly for final
+evaluation. We optimise reconstruction error using weighted MSE, where feature-wise
+inverse-variance weighting prevents high-variance dimensions from dominating the
+objective. Early stopping is employed to limit overfitting.
+
+\subsection{Anomaly Detection}
+Given input \(x\) and reconstruction \(\hat{x}\), anomaly score is computed as
+per-sample reconstruction error:
+\[
+s(x)=\frac{1}{d}\sum_{j=1}^{d}(x_j-\hat{x}_j)^2.
+\]
+A sample is classified as anomalous when \(s(x)>\tau\). The threshold \(\tau\) is
+selected on the \textbf{validation set} by maximising F1-score and is then held
+fixed for test-set reporting (no test-set threshold tuning).
+
+\section{Experimental Setup}
+\label{sec:phase2_setup}
+
+Phase~2 uses the NSL-KDD benchmark with a leakage-aware semi-supervised protocol:
+\begin{itemize}
+  \item \textbf{Training split:} normal-only subset for autoencoder fitting.
+  \item \textbf{Validation split:} mixed normal/attack subset for threshold tuning.
+  \item \textbf{Test split:} held-out NSL-KDD test set for final evaluation only.
+\end{itemize}
+
+\noindent Preprocessing controls are as follows:
+\begin{itemize}
+  \item \textbf{Scaling:} StandardScaler fitted on train-normal data only.
+  \item \textbf{Categorical encoding:} train-only category mapping; unseen test
+        categories mapped safely without test-informed fitting.
+\end{itemize}
+
+\section{Results and Evaluation}
+\label{sec:phase2_results}
+
+Evaluation follows the same protocol as Phase~1, reporting Accuracy, Precision,
+Recall, F1-score, and ROC-AUC on the held-out test set.
+
+\begin{table}[H]
+  \centering
+  \caption{Phase~1 vs.\ Phase~2 Model Performance on NSL-KDD Test Set}
+  \label{tab:phase1_phase2_compare}
+  \begin{tabular}{lccccc}
+    \toprule
+    Model & Accuracy & Precision & Recall & F1 & AUC \\
+    \midrule
+    Z-Score & 85.27\% & 88.67\% & 84.98\% & 86.79\% & 89.93\% \\
+    Isolation Forest & 84.86\% & 86.04\% & 87.63\% & 86.82\% & 93.91\% \\
+    Autoencoder (Skip) & 58.18\% & 57.65\% & 100.00\% & 73.14\% & 93.20\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Beyond scalar metrics, confusion-matrix analysis indicates that the autoencoder
+configuration strongly prioritises recall (near-zero missed attacks), while ROC
+curve analysis confirms strong ranking performance (AUC~93.20\%). However, the
+chosen operating threshold increases false positives, which lowers precision and
+overall accuracy relative to Phase~1 baselines.
+
+\section{Comparison and Discussion}
+\label{sec:phase2_discussion}
+
+Compared with Phase~1, the autoencoder provides substantially higher sensitivity
+to attacks (recall 100\%) and competitive AUC, demonstrating that learned latent
+representations capture non-linear anomaly structure. Nonetheless, the current
+threshold operating point induces a precision penalty, resulting in lower F1 and
+accuracy than the tuned statistical/ensemble baselines.
+
+This behaviour highlights a practical IDS trade-off: high recall is desirable for
+security-critical settings, but elevated false positives may increase analyst load.
+Hence, Phase~2 is effective as a high-sensitivity detector, but requires tighter
+score calibration for balanced production use.
+
+\subsection{Relation to Prior Work}
+Our Phase~2 methodology follows the reconstruction-based anomaly-detection workflow
+in \cite{ae_network_traffic}: model normal traffic, compute reconstruction error,
+and classify anomalies using a learned threshold. We adopt this core formulation
+while introducing three project-specific modifications: (i) skip connections for
+tabular feature preservation, (ii) weighted MSE for heterogeneous feature-scale
+robustness, and (iii) validation-driven threshold selection with strict test-set
+isolation.
+
 \section{Conclusion}
 \label{sec:conclusion}
 
-This paper presents a semi-supervised anomaly detection framework for network
-intrusion detection on the NSL-KDD dataset.  Motivated by the fundamental
-limitation of signature-based IDS---their inability to detect zero-day attacks---we
-adopted a one-class learning paradigm that trains exclusively on benign traffic.
+This report presents a two-phase semi-supervised IDS framework on NSL-KDD.
+Phase~1 established interpretable baselines using Z-Score and Isolation Forest.
+Phase~2 extended the framework with a deep autoencoder trained on normal traffic
+only, under explicit leakage controls and validation-based threshold calibration.
 
-A rigorous Exploratory Data Analysis guided the design of a principled preprocessing
-pipeline.  Two complementary baseline detectors were implemented and evaluated:
+Empirically, the autoencoder achieved high recall (100\%) and strong ROC-AUC
+(93.20\%), indicating effective anomaly separability and attack coverage. However,
+relative to Phase~1, its current threshold setting yields lower precision and
+accuracy, demonstrating a sensitivity--specificity trade-off that must be tuned
+for operational deployment.
 
-\begin{itemize}
-  \item \textbf{Z-Score Thresholding} (Accuracy~85.27\%, AUC~89.93\%): a simple,
-        interpretable parametric detector that provides a transparent performance floor.
-  \item \textbf{Isolation Forest} (Accuracy~84.86\%, AUC~93.91\%): a non-parametric,
-        tree-based ensemble that achieves superior discriminative power, particularly
-        at low false-positive rates.
-\end{itemize}
-
-These baselines establish a rigorous evaluation framework for Phase~2, which will
-explore deep anomaly detectors---autoencoders, variational autoencoders, and
-LSTM-based sequence models---capable of exploiting non-linear feature interactions
-and temporal traffic dynamics.
+Overall, Phase~2 confirms the value of deep reconstruction-based IDS while
+identifying calibration and false-positive control as key improvement areas.
+Future work will investigate \textbf{LSTM autoencoders} for temporal modelling
+and \textbf{Variational Autoencoders (VAE)} for probabilistic anomaly scoring.
 
 \begin{thebibliography}{9}
 
@@ -659,6 +765,10 @@ M. Sakurada and T. Yairi,
 reduction,''
 in \textit{Proc.\ MLSDA 2nd Workshop Mach.\ Learn.\ Sensory Data Anal.},
 pp.~4--11, 2014.
+
+\bibitem{ae_network_traffic}
+``Autoencoder-Based Anomaly Detection in Network Traffic,''
+reference paper used to guide the Phase~2 deep-learning methodology.
 
 \bibitem{scholkopf2001}
 B. Sch\"{o}lkopf, J. C. Platt, J. Shawe-Taylor, A. J. Smola, and R. C. Williamson,
