@@ -1,6 +1,6 @@
 # Reproducible container for the Phase 3 hybrid IDS demo.
-# Build (from the Phase 3 directory):
-#   docker build -t phase3-ids -f app/Dockerfile ..
+# Build from the repository root:
+#   docker build -t phase3-ids -f "Phase 3/app/Dockerfile" .
 # Run:
 #   docker run --rm -p 8501:8501 phase3-ids
 #

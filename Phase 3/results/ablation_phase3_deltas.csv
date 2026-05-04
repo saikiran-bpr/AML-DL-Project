@@ -1,0 +1,7 @@
+change,f1_delta
+Latent representation (5 vs 4),0.0021797750073857536
+Residual signal (6 vs 4),0.013744747413332314
+Latent + residuals together (7 vs 4),0.01261682695013866
+AE gate on top (8 vs 7),-0.08677963728163873
+Hybrid vs raw IF (3 vs 2),-0.06834648764618145
+Hybrid vs AE alone (3 vs 1),0.01559607447488498
