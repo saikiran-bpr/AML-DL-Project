@@ -222,11 +222,21 @@ Implemented evidence:
 Interpretation:
 The extra-mile work includes a functional demo path, containerization path,
 explainability evidence, and a reproducible execution script. SHAP evidence is
-already generated in `figures/phase3_cax_shap_blocks.png`; the only remaining
-presentation polish item is a UI screenshot.
+already generated in `figures/phase3_cax_shap_blocks.png`. The packaged
+Streamlit interface demonstrates real-time interpretability and model comparison
+beyond static experimentation.
 
-Pending evidence:
-- [ ] `figures/streamlit_demo.png` screenshot of the Streamlit interface.
+#### Interactive Streamlit Demo
+
+![Streamlit demo showing live hybrid IDS inference](figures/streamlit_demo.png)
+
+- Runs live inference on NSL-KDD samples from the processed Phase-3 test split.
+- Compares Model A Deep Isolation Forest anomaly scoring against Model C
+  Cascaded AE + XGBoost class probabilities and predictions.
+- Visualizes reconstruction residuals, making the DL-to-ML signal flow visible
+  through the autoencoder residual features used by XGBoost.
+- Supports interactive sample selection by random row, attack family, or custom
+  test-set index.
 
 ## Results Summary
 Final consolidated metrics live in `results/phase3_full_comparison.csv` and
