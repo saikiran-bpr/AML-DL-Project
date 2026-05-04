@@ -5,6 +5,13 @@ cd "$(dirname "$0")"
 
 mkdir -p results figures
 
+# macOS workaround: PyTorch (loaded in nb03/04) and XGBoost (loaded in nb04/05)
+# both bundle their own libomp.dylib, and the second OpenMP runtime to load can
+# silently kill the kernel. Pinning to one OMP thread before Python starts
+# avoids the collision. PyTorch on MPS is GPU-bound, so this has no measurable
+# impact on AE training time.
+export OMP_NUM_THREADS=1
+
 NOTEBOOKS=(
   "02_data_preparation.ipynb"
   "03_deep_isolation_forest.ipynb"

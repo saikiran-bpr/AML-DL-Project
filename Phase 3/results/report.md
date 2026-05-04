@@ -50,7 +50,7 @@ Per-component F1 deltas (`results/ablation_phase3_deltas.csv`):
 | Residual signal (6 vs 4) | +0.0137 |
 | Latent + residuals together (7 vs 4) | +0.0126 |
 | AE gate on top (8 vs 7) | -0.0868 |
-| Hybrid vs raw IF (3 vs 2) | -0.0683 |
+| Hybrid vs raw IF (3 vs 2) | -0.0667 |
 | Hybrid vs AE alone (3 vs 1) | +0.0156 |
 
 
@@ -66,7 +66,7 @@ Diagnostic interpretation:
   better-calibrated isolation score on the AE's compressed latent space.
 
 ## 6. Where does XGBoost actually look?
-Block-level SHAP importance share on a 2 000-row test subsample:
+Block-level SHAP importance share on a 2 000-row test subsample:  
 **raw 52.0% / latent 22.1% / residuals 25.9%**
 
 The latent and residual blocks together account for a non-trivial fraction of the

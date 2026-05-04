@@ -1,245 +1,296 @@
-# Phase 3: Hybrid ML + DL Intrusion Detection on NSL-KDD
+# Phase 3 — Hybrid ML + DL Intrusion Detection on NSL-KDD
 
-## Problem Statement
-Phase 3 unifies the classical ML baselines from Phase 1 (Z-Score, Isolation Forest)
-and the deep one-class detectors from Phase 2 (Autoencoder, VAE) into two
-**hybrid architectures** that explicitly couple the two paradigms.
+**Authors:** Prerak Arya (230039), Sai Kiran Bompelliwar (230046) — Rishihood University
+**Dataset:** NSL-KDD (Tavallaee et al., 2009)
+**Runtime:** PyTorch 2.x (MPS / CUDA / CPU) · scikit-learn 1.x · XGBoost 3.x
 
-The motivation comes directly from a Phase-2 weakness: the deep autoencoder
-achieved ROC-AUC = 0.93 but precision was only 0.58 on the held-out NSL-KDD test
-set. Recall saturated at 1.0, indicating the reconstruction-error threshold was
-too permissive. Phase 3 replaces this brittle threshold with an ML decision
-mechanism operating on the AE's latent space, and it adds a supervised
-attack-family classifier for triage.
+This repository extends Phase 1 (statistical / classical ML baselines) and Phase 2
+(deep one-class detectors) with two **hybrid architectures** that explicitly
+couple deep representation learning with classical machine learning. Each
+notebook is self-contained, every artefact is regenerable, and the full
+pipeline runs end-to-end via a single shell script.
 
-## Hybrid Architectures
+---
+
+## 1. Why hybrids
+
+Phase 2 surfaced a calibration weakness: the deep autoencoder reached
+ROC-AUC ≈ 0.93 on the NSL-KDD test set but precision collapsed to 0.58 because
+the reconstruction-error threshold over-flagged benign traffic. Phase 3
+replaces that brittle threshold with a machine-learning decision rule and
+adds a supervised attack-family classifier on top.
+
+| | Strength | Weakness on NSL-KDD |
+|---|---|---|
+| Classical ML (IF, OCSVM) | Calibrated, interpretable decision rules | Curse of dimensionality on heterogeneous tabular features |
+| Deep AE (Phase 2) | Captures non-linear feature correlations | Threshold is brittle and uncalibrated |
+
+Each Phase 3 hybrid pairs the two so that one half fixes the other's weakness.
+
+---
+
+## 2. The two hybrids
 
 ### Model A — Deep Isolation Forest (DIF)
-The Phase-2 autoencoder encodes a record into a 32-dimensional latent vector
-`z`. An Isolation Forest is then trained on `z` (not on the raw 43-D input).
-The final anomaly score is the IF isolation score in latent space.
-
-**Why this is a hybrid, not glue:**
-- The AE solves IF's curse-of-dimensionality on heterogeneous tabular features.
-- IF replaces the AE's arbitrary MSE threshold with a principled isolation-based
-  decision boundary, fixing the over-flagging behaviour observed in Phase 2.
+```
+x ∈ ℝ⁴³  →  AE encoder (DL)  →  z ∈ ℝ³²  →  Isolation Forest (ML)  →  anomaly score
+```
+The autoencoder gives Isolation Forest a dense, decorrelated latent. Isolation
+Forest replaces the autoencoder's MSE threshold with a path-length statistic
+that is scale-free and well-calibrated. Inspired by Xu et al., *Deep Isolation
+Forest*, IEEE TKDE 2023.
 
 ### Model C — Cascaded AE + XGBoost (CAX)
-Two-stage IDS pipeline:
-- **Stage 1 (DL, semi-supervised):** AE flags anomaly via reconstruction error.
-- **Stage 2 (ML, supervised):** XGBoost takes the concatenated feature vector
-  `[raw_features ‖ AE_latent_z ‖ per_feature_residuals]` and classifies into
-  `{Normal, DoS, Probe, R2L, U2R}`.
+```
+                    ┌────► z          (32-D latent)
+x ∈ ℝ⁴³ → AE (DL) ──┤
+                    └────► |x − x̂|   (43-D residual)
 
-The per-feature residuals are the novel signal — they tell XGBoost *which*
-dimensions the AE failed to reconstruct, transferring information from the
-DL component into the ML component.
+concat(x, z, |x − x̂|) ∈ ℝ¹¹⁸  →  XGBoost (ML)  →  ŷ ∈ {Normal, DoS, Probe, R2L, U2R}
+```
+XGBoost consumes three views of every record: the raw features, the AE latent,
+and the per-feature reconstruction residuals. The residual block is the
+architectural innovation — it is a signal trees cannot derive from raw input on
+their own. Inspired by Shone et al., IEEE TETCI 2018, with XGBoost
+(Chen & Guestrin, KDD 2016) replacing Random Forest.
 
-## Repository Structure
+---
+
+## 3. Repository layout
+
 ```
 Phase 3/
-├── 01_introduction_hybrid.ipynb     # Motivation + literature
-├── 02_data_preparation.ipynb        # Splits + preprocessing (binary + multi-class)
-├── 03_deep_isolation_forest.ipynb   # Model A
-├── 04_cascaded_ae_xgboost.ipynb     # Model C
-├── 05_ablation_study.ipynb          # ML-only vs DL-only vs Hybrid table
-├── 06_final_comparison.ipynb        # Phase 1 vs Phase 2 vs Phase 3 + report
-├── run_all.sh                       # Executes notebooks 02-06 and verifies artifacts
-├── utils/
-│   ├── config.py                    # Paths, seeds, device, NSL-KDD schema
-│   ├── data_loader.py               # NSL-KDD loading + leakage-safe splits
-│   ├── hybrid_models.py             # DeepIsolationForest, CascadedAE_XGB, AE
-│   └── evaluation.py                # Binary + multi-class metrics, plotting
-├── app/
-│   ├── streamlit_app.py             # Live demo UI (Extra Mile)
-│   └── Dockerfile                   # Reproducible container (Extra Mile)
-├── models/                          # Saved AE, IF, XGBoost, scaler
-├── results/                         # CSVs and metric tables
-├── figures/                         # PNG figures for the report
-├── references/                      # User-provided references
+├── 01_introduction_hybrid.ipynb     Motivation, both architectures, rubric mapping
+├── 01b_literature_review.ipynb      Four-paper anchor review (2 per model)
+├── 02_data_preparation.ipynb        Leakage-safe splits, multi-class labels
+├── 03_deep_isolation_forest.ipynb   Model A — train AE, fit IF on latent
+├── 04_cascaded_ae_xgboost.ipynb     Model C — train XGBoost on hybrid features + SHAP
+├── 05_ablation_study.ipynb          Eight-condition ablation, per-component F1 deltas
+├── 06_final_comparison.ipynb        Cross-phase table, ROC, diagrams, report.md
+├── main.tex                         IEEE conference-style report (Overleaf-ready)
+├── run_all.sh                       One-shot pipeline runner + artifact verifier
 ├── requirements.txt
-└── README.md
+├── utils/
+│   ├── config.py                    Paths, seeds, device, NSL-KDD schema
+│   ├── data_loader.py               NSL-KDD loading + leakage-safe splits
+│   ├── hybrid_models.py             AE, DeepIsolationForest, CascadedAE_XGB
+│   └── evaluation.py                Binary + multi-class metrics, plotting
+├── app/
+│   ├── streamlit_app.py             Live demo UI
+│   └── Dockerfile                   Reproducible container
+├── models/                          Trained AE, IF, XGBoost, scaler
+├── results/                         CSVs, NPZ score archives, report.md
+├── figures/                         Diagrams, ROC, ablation bars, SHAP, demo screenshot
+└── references/                      Source PDFs of the four anchor papers
 ```
 
-## Data Pipeline (Leakage-Safe)
-- NSL-KDD train/test loaded from `../Phase 1/data/`.
-- Categorical encoders fit on training data only; unseen test categories → -1.
-- Engineered features: `bytes_ratio`, `error_rate_diff`, `srv_diversity`.
-- `StandardScaler` fit on train-normal only.
-- AE trains on 80 % of train-normal (Phase-2 split, preserved here).
-- XGBoost trains on the *remaining* train rows (held-out normal + all attacks)
-  with attack-family labels — never sees AE's training samples.
-- Threshold and hyperparameters tuned on the validation split only.
-- Final NSL-KDD test set used exactly once for reporting.
+---
 
-## How to Run
+## 4. Quick start
+
 ```bash
+cd "Phase 3"
 pip install -r requirements.txt
-
-# Run notebooks 02-06 in order and verify required outputs
 bash run_all.sh
 ```
 
-### Streamlit demo (Extra Mile)
+`run_all.sh` executes notebooks 02–06 in order, then verifies that every
+required artefact landed on disk. It exports `OMP_NUM_THREADS=1` first to avoid
+a known macOS interaction (PyTorch and XGBoost both bundle `libomp.dylib`; the
+second OpenMP runtime to load can silently kill the kernel).
+
+To run only a single notebook by hand:
+```bash
+OMP_NUM_THREADS=1 jupyter nbconvert --to notebook --execute --inplace 04_cascaded_ae_xgboost.ipynb
+```
+
+---
+
+## 5. Data pipeline (leakage-safe)
+
+| Partition | Source | Used by |
+|---|---|---|
+| `X_train_normal` | 80 % of train normals | AE training (one-class) |
+| `X_val_normal`   | 20 % of train normals | AE validation curve |
+| `X_val_mixed`    | val normal + sampled attacks | Threshold tuning (max-F1) |
+| `X_clf_train`    | val normal + every train attack (multi-class labels) | XGBoost training |
+| `X_test`         | NSL-KDD `KDDTest+` | Final reporting only |
+
+* Categorical encoders fit on training data only; unseen test categories → −1.
+* Engineered features: `bytes_ratio`, `error_rate_diff`, `srv_diversity`.
+* `StandardScaler` fit on AE-train normals only.
+* AE training rows never overlap the XGBoost training pool, so the residuals
+  XGBoost sees at fit time are realistic.
+* The test set is touched exactly once, for final reporting.
+
+---
+
+## 6. Results
+
+### Cross-phase headline (NSL-KDD test, 22 544 rows)
+
+| Phase | Model | Acc | Prec | Recall | F1 | AUC |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | Isolation Forest          | 0.848 | 0.825 | 0.930 | **0.874** | 0.940 |
+| 1 | Z-Score                   | 0.853 | 0.887 | 0.850 | 0.868 | 0.899 |
+| 2 | One-Class SVM             | 0.816 | 0.938 | 0.725 | 0.818 | 0.904 |
+| 2 | β-VAE                     | 0.582 | 0.577 | 1.000 | 0.732 | 0.941 |
+| 2 | Autoencoder               | 0.582 | 0.576 | 1.000 | 0.731 | 0.932 |
+| **3** | **Model C — raw + residuals** | **0.821** | **0.968** | 0.710 | **0.819** | **0.966** |
+| **3** | **Model C — full**            | 0.820 | 0.967 | 0.709 | 0.818 | 0.964 |
+| 3 | Deep IF (Model A)         | 0.758 | 0.926 | 0.626 | 0.747 | 0.927 |
+
+Phase 3 leads on **AUC** and **precision** across the whole table. Phase 1
+Isolation Forest still has the highest **F1** — the Phase 3 contribution is a
+calibration shift (substantially higher precision, slightly lower F1) plus the
+multi-class triage capability and per-component diagnostic evidence that the
+classical baselines cannot offer.
+
+Source: `results/phase3_full_comparison.csv`.
+
+### Eight-condition ablation
+
+The diagnostic teardown that proves where the gain comes from. All conditions
+evaluated on the same test set with the same threshold-tuning protocol.
+
+| # | Condition | F1 | AUC |
+|---|---|---:|---:|
+| 1 | AE only                       | 0.731 | 0.954 |
+| 2 | Isolation Forest (raw)        | 0.813 | 0.937 |
+| 3 | Deep IF (Model A)             | 0.747 | 0.927 |
+| 4 | XGBoost (raw only)            | 0.805 | 0.960 |
+| 5 | XGBoost (raw + latent z)      | 0.807 | 0.963 |
+| 6 | XGBoost (raw + residuals)     | **0.819** | **0.966** |
+| 7 | Model C (raw + z + residuals) | 0.818 | 0.964 |
+| 8 | Model C + AE gate (cascade)   | 0.731 | 0.964 |
+
+Per-component F1 deltas (`results/ablation_phase3_deltas.csv`):
+
+| Change | ΔF1 |
+|---|---:|
+| Latent representation (5 vs 4)             | +0.002 |
+| Residual signal (6 vs 4)                   | **+0.014** |
+| Latent + residuals together (7 vs 4)       | +0.013 |
+| AE gate on top (8 vs 7)                    | **−0.087** |
+| Hybrid vs raw IF (3 vs 2)                  | −0.067 |
+| Hybrid vs AE alone (3 vs 1)                | +0.016 |
+
+**Honest findings reported as-is:**
+* The **residual block carries the supervised gain.** Latent alone adds
+  almost nothing (+0.002 F1).
+* **Latent and residuals are largely redundant** for binary detection. The
+  full hybrid (#7) is essentially tied with `raw + residuals` (#6).
+* The **Stage-1 AE gate hurts on this run** (−0.087 F1) because the AE-only
+  threshold is permissive (recall 1.0, precision 0.58). The ungated Model C
+  is the recommended deployment configuration.
+* **Phase-1 Isolation Forest still has the highest F1 overall.** The Phase-3
+  story is calibration (AUC, precision) and triage (multi-class output), not
+  an F1 win.
+
+### Does XGBoost actually use the deep features?
+
+SHAP block-share attribution on a 2 000-row test subsample:
+
+| Block | Share of mean \|SHAP\| |
+|---|---:|
+| Raw features          | 52.0 % |
+| AE latent (z)         | 22.1 % |
+| AE residuals          | 25.9 % |
+
+**48 % of XGBoost's decision attribution comes from AE-derived features.**
+This is the empirical evidence that Model C is a real hybrid rather than glue.
+See `figures/phase3_cax_shap_blocks.png`.
+
+---
+
+## 7. Architecture diagrams
+
+Drawn live in notebook 06 with matplotlib (no external graphics dependency),
+so they regenerate every run.
+
+![Model A — Deep Isolation Forest](figures/diagram_model_A.png)
+
+![Model C — Cascaded AE + XGBoost](figures/diagram_model_C.png)
+
+---
+
+## 8. Streamlit demo
+
+Run live inference on any NSL-KDD test record and see both hybrids' decisions
+side by side, plus the top reconstruction residuals (the DL → ML signal):
+
 ```bash
 streamlit run app/streamlit_app.py
 ```
 
-### Docker (Extra Mile)
-Run this from the repository root, not from inside `Phase 3/`, because the
-Dockerfile copies both `Phase 1/data` and `Phase 3`.
+![Streamlit demo](figures/streamlit_demo.png)
+
+* Pick a record by random sampling, by attack family, or by row index.
+* Model A returns the latent-IF anomaly score and the validation-tuned
+  threshold.
+* Model C returns the predicted attack family with full per-class
+  probabilities.
+* The top-15 per-feature residuals are shown as the explanation for the
+  flag — they are exactly what XGBoost consumes.
+
+---
+
+## 9. Docker
+
+Run from the repository root (the build context must include both `Phase 1/data`
+and `Phase 3`):
 
 ```bash
 docker build -t phase3-ids -f "Phase 3/app/Dockerfile" .
 docker run --rm -p 8501:8501 phase3-ids
 ```
 
-## Phase 3 Evaluation Evidence
+The container regenerates missing artefacts (notebooks 02–04) on first launch,
+then serves the Streamlit demo on port 8501.
 
-### Hybrid Innovation
-Implemented evidence:
-- Model A, Deep Isolation Forest, couples a deep autoencoder encoder with an
-  Isolation Forest decision boundary on the AE latent space.
-- Model C, Cascaded AE + XGBoost, trains XGBoost on
-  `[raw_features | AE_latent_z | per_feature_residuals]`, making the AE's
-  reconstruction failures a supervised ML signal.
-- The final comparison is generated in `results/phase3_full_comparison.csv`.
-- Model C's DL-to-ML feature-block usage is saved in `results/modelC_scores.npz`
-  and visualized through the SHAP block plot generated by notebook 04.
+---
 
-Interpretation:
-Model C is the strongest hybrid submission artifact: the full hybrid feature set
-improves over the Phase-3 raw XGBoost ML-only baseline from F1 0.805 to 0.818
-and AUC 0.960 to 0.964. It also improves over the AE-only DL baseline from F1
-0.731 to 0.818 and AUC 0.954 to 0.964. The SHAP block evidence shows XGBoost is
-not ignoring the deep component: raw features account for 52.0% of attribution,
-latent features for 22.1%, and residual features for 25.9%. The honest caveat is
-that the Phase-1 Isolation Forest still has the highest F1 overall at 0.874, so
-the hybrid claim should be framed as stronger Phase-3 integration and AUC/feature
-evidence, not as best overall F1.
+## 10. IEEE report
 
-| Model | Accuracy | Precision | Recall | F1 | AUC | Evidence File |
-|---|---:|---:|---:|---:|---:|---|
-| Best ML-only baseline | 0.848 | 0.825 | 0.930 | 0.874 | 0.940 | `results/phase3_full_comparison.csv` |
-| Best DL-only baseline | 0.582 | 0.577 | 1.000 | 0.732 | 0.941 | `results/phase3_full_comparison.csv` |
-| Deep Isolation Forest | 0.758 | 0.926 | 0.626 | 0.747 | 0.927 | `results/modelA_dif_metrics.csv` |
-| Cascaded AE + XGBoost | 0.820 | 0.967 | 0.709 | 0.818 | 0.964 | `results/modelC_cax_metrics_binary.csv` |
+A complete IEEE conference-style write-up is in [`main.tex`](main.tex). Compile
+on Overleaf by uploading `main.tex` together with the `figures/` folder; the
+default pdfLaTeX compiler is sufficient. All numbers in the tables are sourced
+from the CSVs in `results/` so the report stays in sync with the pipeline.
 
-### Ablation Studies
-Implemented evidence:
-- Notebook 05 evaluates ML-only, DL-only, partial hybrid, full hybrid, and gated
-  cascade variants on the same NSL-KDD test set.
-- The ablation table is generated at `results/ablation_phase3.csv`.
-- Component-level F1 deltas are generated at `results/ablation_phase3_deltas.csv`.
-- Ablation figures are generated in `figures/phase3_ablation_f1.png` and
-  `figures/phase3_ablation_auc.png`.
+---
 
-Interpretation:
-The full Model C hybrid improves over the Phase-3 ML-only raw XGBoost baseline by
-+0.013 F1 and +0.004 AUC. It improves over the DL-only AE baseline by +0.087 F1
-and +0.009 AUC. Residual features are the most useful AE-derived component:
-raw + residuals reaches F1 0.819, while raw + latent reaches F1 0.807. Removing
-residuals from the full hybrid drops F1 from 0.818 to 0.807. Removing latent
-features does not hurt in this run; raw + residuals slightly exceeds the full
-raw + latent + residual model by +0.001 F1 and +0.002 AUC. The AE gate is not
-beneficial for the binary metric here: the gated cascade drops from F1 0.818 to
-0.731, so the ungated full hybrid is the stronger submission result.
+## 11. Verified artefacts
 
-| Experiment | F1 | AUC | Delta vs Full Hybrid |
-|----------|----|-----|----------------------|
-| ML Only | 0.805 | 0.960 | -0.013 |
-| DL Only | 0.731 | 0.954 | -0.087 |
-| Raw + Latent | 0.807 | 0.963 | -0.010 |
-| Raw + Residual | 0.819 | 0.966 | +0.001 |
-| Full Hybrid | 0.818 | 0.964 | +0.000 |
+`run_all.sh` checks that the following exist after a successful run:
 
-Component deltas from `results/ablation_phase3_deltas.csv`:
+| Artefact | Purpose |
+|---|---|
+| `results/phase3_full_comparison.csv` | Cross-phase comparison table |
+| `results/ablation_phase3.csv`        | Eight-condition ablation |
+| `results/ablation_phase3_deltas.csv` | Per-component F1 deltas |
+| `results/modelC_scores.npz`          | Model C scores + SHAP block share |
+| `figures/diagram_model_A.png`        | Model A architecture diagram |
+| `figures/diagram_model_C.png`        | Model C architecture diagram |
 
-| Change | F1 Delta |
-|---|---:|
-| Latent representation (5 vs 4) | +0.002 |
-| Residual signal (6 vs 4) | +0.014 |
-| Latent + residuals together (7 vs 4) | +0.013 |
-| AE gate on top (8 vs 7) | -0.087 |
-| Hybrid vs raw IF (3 vs 2) | -0.068 |
-| Hybrid vs AE alone (3 vs 1) | +0.016 |
+Additional outputs (not on the verifier's hard-fail list, but always produced):
+all per-condition confusion matrices, ROC curves, ablation bar charts, the
+SHAP block plot, the latent-space PCA scatter, and `results/report.md`.
 
-### Architecture Diagram
-Implemented evidence:
-- Notebook 06 generates publication-style diagrams for both hybrid
-  architectures.
-- Model A diagram artifact: `figures/diagram_model_A.png`.
-- Model C diagram artifact: `figures/diagram_model_C.png`.
-- The diagrams include tensor shapes, DL/ML component boundaries, and the
-  Model C fusion mechanism.
+---
 
-Interpretation:
-The diagrams are generated artifacts, not hand-drawn screenshots. They show the
-specific fusion mechanism for Model C, including `x`, `z`, `|x - x_hat|`, and
-the `[B, 118]` concatenated feature vector, which directly supports the
-architecture-diagram rubric.
+## 12. References
 
-![Model A — Deep Isolation Forest](figures/diagram_model_A.png)
+The four anchor papers driving the hybrid design (full review in
+`01b_literature_review.ipynb`):
 
-![Model C — Cascaded AE + XGBoost](figures/diagram_model_C.png)
+1. Liu, F. T., Ting, K. M., & Zhou, Z.-H. (2008). Isolation Forest. *IEEE ICDM*.
+2. Xu, H., Pang, G., Wang, Y., & Wang, Y. (2023). Deep Isolation Forest for
+   Anomaly Detection. *IEEE TKDE*.
+3. Shone, N., Ngoc, T. N., Phai, V. D., & Shi, Q. (2018). A Deep Learning
+   Approach to Network Intrusion Detection. *IEEE TETCI* 2(1), 41–50.
+4. Chen, T., & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System.
+   *ACM KDD*.
 
-### Reproducibility
-Implemented evidence:
-- `requirements.txt` contains the runtime packages needed for notebook
-  execution, modeling, plotting, SHAP analysis, Streamlit, and nbconvert.
-- `run_all.sh` creates required output directories, executes notebooks 02-06 in
-  order, stops on the first error, and verifies the required CSV/NPZ/PNG
-  artifacts.
-- The data loader uses relative paths and leakage-safe train/validation/test
-  splits.
-- Docker support is provided through `app/Dockerfile`.
-
-Interpretation:
-`./run_all.sh` was executed successfully and verified all required artifacts.
-This means the Phase-3 pipeline is not just documented; it has been run end to
-end from notebooks 02-06 with generated metrics, diagrams, SHAP evidence, and
-final comparison outputs.
-
-Required artifacts checked by `run_all.sh`:
-
-| Verified | Artifact | Purpose |
-|---|---|---|
-| [x] | `results/phase3_full_comparison.csv` | Final cross-phase comparison table |
-| [x] | `results/ablation_phase3.csv` | ML-only, DL-only, and hybrid ablation metrics |
-| [x] | `results/ablation_phase3_deltas.csv` | Component contribution deltas |
-| [x] | `results/modelC_scores.npz` | Model C scores and SHAP block shares |
-| [x] | `figures/diagram_model_A.png` | Deep Isolation Forest architecture diagram |
-| [x] | `figures/diagram_model_C.png` | Cascaded AE + XGBoost architecture diagram |
-
-### Extra Mile
-Implemented evidence:
-- Streamlit demo in `app/streamlit_app.py` for live NSL-KDD sample inspection.
-- Docker support in `app/Dockerfile` for containerized demo execution.
-- SHAP explainability in notebook 04, including feature-block importance for raw
-  features, AE latent features, and AE residual features.
-- Reproducible pipeline through `run_all.sh`.
-
-Interpretation:
-The extra-mile work includes a functional demo path, containerization path,
-explainability evidence, and a reproducible execution script. SHAP evidence is
-already generated in `figures/phase3_cax_shap_blocks.png`. The packaged
-Streamlit interface demonstrates real-time interpretability and model comparison
-beyond static experimentation.
-
-#### Interactive Streamlit Demo
-
-![Streamlit demo showing live hybrid IDS inference](figures/streamlit_demo.png)
-
-- Runs live inference on NSL-KDD samples from the processed Phase-3 test split.
-- Compares Model A Deep Isolation Forest anomaly scoring against Model C
-  Cascaded AE + XGBoost class probabilities and predictions.
-- Visualizes reconstruction residuals, making the DL-to-ML signal flow visible
-  through the autoencoder residual features used by XGBoost.
-- Supports interactive sample selection by random row, attack family, or custom
-  test-set index.
-
-## Results Summary
-Final consolidated metrics live in `results/phase3_full_comparison.csv` and
-include every model from Phase 1, Phase 2, and Phase 3 evaluated on the same
-held-out NSL-KDD test set. See `06_final_comparison.ipynb` for figures and
-`results/report.md` for the written analysis.
+Background / dataset references: Tavallaee et al. (2009) for NSL-KDD; Sakurada
+& Yairi (2014) for autoencoder anomaly detection; Chandola, Banerjee & Kumar
+(2009) for the anomaly-detection taxonomy; Lundberg & Lee (2017) for SHAP.
