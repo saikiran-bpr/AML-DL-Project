@@ -54,6 +54,16 @@ architectural innovation — it is a signal trees cannot derive from raw input o
 their own. Inspired by Shone et al., IEEE TETCI 2018, with XGBoost
 (Chen & Guestrin, KDD 2016) replacing Random Forest.
 
+### Naming note: why Model A and Model C?
+The labels are intentional, not a typo. During Phase 3 we considered multiple
+hybrid directions as a team. Model A became the final unsupervised hybrid
+detector: Deep Isolation Forest. Model C became the final supervised cascaded
+hybrid: Autoencoder + XGBoost. The intermediate Model B idea was not included in
+the final submission because it was less distinct and overlapped with the two
+stronger architectures. We kept the A/C names to preserve continuity with our
+experiment notebooks and ablation records, while the submitted system focuses on
+the two implemented, evaluated, and rubric-relevant hybrids.
+
 ---
 
 ## 3. Repository layout
